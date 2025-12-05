@@ -1,19 +1,33 @@
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener};
+use tokio::{io::BufStream, net::TcpListener};
+use tracing::info;
+
+mod req;
+
+static PORT: &str = "8080";
+static IP_EXPORT: &str = "127.0.0.1";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let server = TcpListener::bind("127.0.0.1:8080").await?;
-    let (mut tcp, _) = server.accept().await?;
-    let mut buffer = [0u8; 16];
+    tracing_subscriber::fmt::init();
 
+    let listener = TcpListener::bind(format!("{IP_EXPORT}:{PORT}")).await?;
+
+    info!("listening on: {}", listener.local_addr()?);
+    
     loop {
-        let n = tcp.read(&mut buffer).await?;
-        if n == 0 {
-            break;
-        }
+        let (stream, addr) = listener.accept().await?;
+        let mut stream = BufStream::new(stream);
 
-        let _ = tcp.write(&buffer[..n]).await?;
+        // Spawn a new task
+        tokio::spawn(async move {
+            info!(?addr, "new connection");
+
+            match req::parse_request(&mut stream).await {
+                Ok(req) => info!(?req, "incoming request"),
+                Err(e) => {
+                    info!(?e, "failed to parse request");
+                }
+            }
+        });
     }
-
-    Ok(())
 }
